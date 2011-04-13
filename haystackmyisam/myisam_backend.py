@@ -43,13 +43,18 @@ class SearchBackend(BaseSearchBackend):
             for model in self.site.get_indexed_models():
                 base_qs = SearchableObject.objects.filter_by_model(model)
                 if query_params:
+                    search_params = ' '.join(query_params)
+                    sub_qs = base_qs & SearchableObject.objects.search(search_params)
+                    """
                     sub_qs = SearchableObject.objects.none()
                     for term in query_params:
                         sub_qs |= base_qs.filter(search_text__icontains=term)
+                    """
                 else:
                     sub_qs = base_qs
                 if debug:
                     print model, query_params, sub_qs
+                    print sub_qs.query.as_sql()
                 
                 for match in sub_qs:
                     result = SearchResult(match._meta.app_label, match._meta.module_name, match.pk, 0, **match.__dict__)

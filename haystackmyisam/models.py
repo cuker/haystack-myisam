@@ -22,6 +22,18 @@ class SearchableObjectManager(models.Manager):
             object_id = obj.pk
             searchable = self.model(content_type=content_type, object_id=object_id)
         return searchable
+    
+    def search(self, query):
+        if settings.DATABASE_ENGINE == 'mysql':
+            return self.extra(
+                select={'relevance': 'MATCH(search_text) AGAINST (%s IN NATURAL LANGUAGE MODE)'},
+                select_params=[query],
+                where=['MATCH(search_text) AGAINST (%s IN NATURAL LANGUAGE MODE)'],
+                params=[query],
+                order_by=['-relevance']
+            )
+        else:
+            return self.filter(search_text__icontains=query)
 
 class SearchableObject(models.Model):
     content_type   = models.ForeignKey(ContentType)
