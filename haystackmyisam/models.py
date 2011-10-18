@@ -3,6 +3,7 @@ from django.contrib.contenttypes import generic
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
+from django.utils import simplejson as json
 
 class SearchableObjectManager(models.Manager):
     def filter_by_model(self, model):
@@ -40,9 +41,41 @@ class SearchableObject(models.Model):
     object_id      = models.PositiveIntegerField()
     content_object = generic.GenericForeignKey('content_type', 'object_id')
     search_text    = models.TextField() #fulltext
+    _document = models.TextField(db_column='document')
+    
+    def get_document(self):
+        if self._document:
+            return json.loads(self._document)
+        else:
+            return {}
+    
+    def set_document(self, data):
+        self._document = json.dumps(data)
+    
+    document = property(get_document, set_document)
     
     objects = SearchableObjectManager()
     
     def __unicode__(self):
-        return u"Searchable Content for %s-%s" % (self.content_type.name, self.content_object)
+        return u"Searchable Object for %s-%s" % (self.content_type.name, self.content_object)
+    
+    class Meta:
+        unique_together = [('content_type', 'object_id')]
+    
+    def populate_index(self, search_index):
+        self.index.all().delete()
+        for key, value in self.document.iteritems():
+            if key in search_index.fields:
+                field = search_index.fields[key]
+                if not field.document and field.indexed:
+                    if isinstance(value, list):
+                        for val in value:
+                            self.index.create(searchable_object=self, key=key, value=val)
+                    else:
+                        self.index.create(searchable_object=self, key=key, value=value)
+
+class SearchableIndex(models.Model):
+    searchable_object = models.ForeignKey(SearchableObject, related_name='index')
+    key = models.CharField(max_length=32, db_index=True)
+    value = models.CharField(max_length=255, db_index=True)
 

@@ -1,9 +1,7 @@
 """
-A very basic, ORM-based backend for simple search during tests.
+
 """
-from django.conf import settings
-from django.db.models import Q
-from django.utils import simplejson
+from django.utils.datastructures import MultiValueDict
 from haystack.backends import BaseSearchBackend, BaseSearchQuery, SearchNode, log_query
 from haystack.models import SearchResult
 
@@ -16,10 +14,20 @@ class SearchBackend(BaseSearchBackend):
     def update(self, index, iterable, commit=True):
         for obj in iterable:
             doc = index.full_prepare(obj)
-            
             searchable = SearchableObject.objects.get_or_init(obj)
-            searchable.search_text = u' | '.join([unicode(val) for val in doc.itervalues()])
+            searchable_parts = list()
+            
+            if hasattr(index, 'content_fields'):
+                for content_field in index.content_fields:
+                    if doc.get(content_field, False):
+                        searchable_parts.append(unicode(doc[content_field]))
+            else:
+                searchable_parts.append(unicode(doc.get(index.get_content_field(), '')))
+                
+            searchable.search_text = u' | '.join(searchable_parts)
+            searchable.document = doc
             searchable.save()
+            searchable.populate_index(index)
     
     def remove(self, obj, commit=True):
         SearchableObject.objects.filter_by_obj(obj).delete()
@@ -38,30 +46,40 @@ class SearchBackend(BaseSearchBackend):
         hits = 0
         results = list()
         
-        if query_string:
-            query_params = simplejson.loads(query_string)
-            for model in self.site.get_indexed_models():
-                base_qs = SearchableObject.objects.filter_by_model(model)
-                if query_params:
-                    search_params = ' '.join(query_params)
-                    sub_qs = base_qs & SearchableObject.objects.search(search_params)
-                    """
-                    sub_qs = SearchableObject.objects.none()
-                    for term in query_params:
-                        sub_qs |= base_qs.filter(search_text__icontains=term)
-                    """
-                else:
-                    sub_qs = base_qs
-                if debug:
-                    print model, query_params, sub_qs
-                    print sub_qs.query.as_sql()
-                
-                for match in sub_qs:
-                    result = SearchResult(match._meta.app_label, match._meta.module_name, match.pk, 0, **match.__dict__)
-                    # For efficiency.
-                    result._model = match.__class__
-                    result._object = match
-                    results.append(result)
+        #build search criteria
+        qs = SearchableObject.objects.all()
+        extras = MultiValueDict()
+        
+        if limit_to_registered_models is not None:
+            qs = qs.filter(content_type__in=limit_to_registered_models)
+        
+        for key, value_list in query_string.iterlists():
+            if key == 'content':
+                search_params = ' '.join(query_string.getlist('content'))
+                qs &= SearchableObject.objects.search(search_params)
+            else:
+                #TODO support multi value search
+                extras.appendlist('where','''
+                    (SELECT COUNT(*) FROM haystackmyisam_searchableindex AS searchindex 
+                     WHERE searchindex.searchable_object_id="haystackmyisam_searchableobject"."id" 
+                       AND searchindex."key"=%s AND searchindex."value"=%s) > 0
+                    ''')
+                extras.appendlist('params', key)
+                extras.appendlist('params', str(value_list[0]))
+        
+        if extras:
+            qs = qs.extra(**extras)
+        
+        qs = qs.distinct() #may or may not work....
+        
+        for match in qs: #TODO this part should be lazy
+            obj = match.content_object
+            result = SearchResult(obj._meta.app_label, obj._meta.module_name, obj.pk, 0, **match.document)
+            # For efficiency.
+            result._model = obj.__class__
+            result._object = obj
+            results.append(result)
+        
         if debug:
             print len(results)
         
@@ -93,19 +111,19 @@ class SearchQuery(BaseSearchQuery):
     
     def build_query(self):
         if not self.query_filter:
-            return u'[]'
+            return MultiValueDict()
         
         params = self._build_sub_query(self.query_filter)
-        return simplejson.dumps(params)
+        return params
     
     def _build_sub_query(self, search_node):
-        term_list = []
+        terms = MultiValueDict()
         
         for child in search_node.children:
             if isinstance(child, SearchNode):
-                term_list.extend(self._build_sub_query(child))
+                terms.update(self._build_sub_query(child))
             else:
-                term_list.append(child[1])
+                terms.appendlist(child[0], child[1])
         
-        return term_list
+        return terms
 
