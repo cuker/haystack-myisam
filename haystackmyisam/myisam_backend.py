@@ -2,6 +2,8 @@
 
 """
 from django.utils.datastructures import MultiValueDict
+from django.db.models.query import QuerySet
+
 from haystack.backends import BaseSearchBackend, BaseSearchQuery, SearchNode, log_query
 from haystack.models import SearchResult
 
@@ -9,6 +11,16 @@ from haystack.models import SearchResult
 BACKEND_NAME = 'myisam'
 
 from models import SearchableObject
+
+class SearchObjectQuerySet(QuerySet):
+    def iterator(self):
+        for match in QuerySet.iterator(self):
+            obj = match.content_object
+            result = SearchResult(obj._meta.app_label, obj._meta.module_name, obj.pk, 0, **match.document)
+            # For efficiency.
+            result._model = obj.__class__
+            result._object = obj
+            yield result
 
 class SearchBackend(BaseSearchBackend):
     def update(self, index, iterable, commit=True):
@@ -72,13 +84,7 @@ class SearchBackend(BaseSearchBackend):
         
         qs = qs.distinct() #may or may not work....
         
-        for match in qs: #TODO this part should be lazy
-            obj = match.content_object
-            result = SearchResult(obj._meta.app_label, obj._meta.module_name, obj.pk, 0, **match.document)
-            # For efficiency.
-            result._model = obj.__class__
-            result._object = obj
-            results.append(result)
+        results = SearchObjectQuerySet(model=qs.model, query=qs.query)
         
         if debug:
             print len(results)
