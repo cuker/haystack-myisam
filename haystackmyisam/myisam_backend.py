@@ -73,8 +73,8 @@ class SearchBackend(BaseSearchBackend):
                 #TODO support multi value search
                 extras.appendlist('where','''
                     (SELECT COUNT(*) FROM haystackmyisam_searchableindex AS searchindex 
-                     WHERE searchindex.searchable_object_id="haystackmyisam_searchableobject"."id" 
-                       AND searchindex."key"=%s AND searchindex."value"=%s) > 0
+                     WHERE `searchindex`.`searchable_object_id`=`haystackmyisam_searchableobject`.`id` 
+                       AND `searchindex`.`key`=%s AND `searchindex`.`value`=%s) > 0
                     ''')
                 extras.appendlist('params', key)
                 extras.appendlist('params', str(value_list[0]))
