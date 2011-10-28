@@ -16,7 +16,10 @@ class SearchObjectQuerySet(QuerySet):
     def iterator(self):
         for match in QuerySet.iterator(self):
             obj = match.content_object
-            result = SearchResult(obj._meta.app_label, obj._meta.module_name, obj.pk, 0, **match.document)
+            kwargs = dict()
+            for key, value in match.document.iteritems():
+                kwargs[str(key)] = value
+            result = SearchResult(obj._meta.app_label, obj._meta.module_name, obj.pk, 0, **kwargs)
             # For efficiency.
             result._model = obj.__class__
             result._object = obj
