@@ -25,7 +25,9 @@ class SearchableObjectManager(models.Manager):
         return searchable
     
     def search(self, query):
-        if settings.DATABASE_ENGINE == 'mysql':
+        max_term_size = max([len(term) for term in query.split()])
+        #mysql fulltext search does not support search terms of a size 3 or less
+        if settings.DATABASE_ENGINE == 'mysql' and max_term_size > 3:
             return self.extra(
                 select={'relevance': 'MATCH(search_text) AGAINST (%s IN NATURAL LANGUAGE MODE)'},
                 select_params=[query],
