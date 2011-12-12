@@ -3,6 +3,7 @@
 """
 from django.utils.datastructures import MultiValueDict
 from django.db.models.query import QuerySet
+from django.contrib.contenttypes.models import ContentType
 
 from haystack.backends import BaseSearchBackend, BaseSearchQuery, SearchNode, log_query
 from haystack.models import SearchResult
@@ -38,7 +39,6 @@ class SearchBackend(BaseSearchBackend):
                         searchable_parts.append(unicode(doc[content_field]))
             else:
                 searchable_parts.append(unicode(doc.get(index.get_content_field(), '')))
-                
             searchable.search_text = u' | '.join(searchable_parts)
             searchable.document = doc
             searchable.save()
@@ -64,6 +64,22 @@ class SearchBackend(BaseSearchBackend):
         #build search criteria
         qs = SearchableObject.objects.all()
         extras = MultiValueDict()
+        
+        if narrow_queries:
+            models = dict()
+            for query in narrow_queries:
+                #TODO properly parse narrow queries
+                if ':' in query:
+                    key, value = query.split(':', 1)
+                    if key == 'django_ct':
+                        if value not in models:
+                            app_label, model = value.split('.', 1)
+                            ct = ContentType.objects.get(app_label=app_label, model=model)
+                            models[value] = ct
+                    else:
+                        query_string[key] = value
+            if models:
+                limit_to_registered_models = models.values()
         
         if limit_to_registered_models is not None:
             qs = qs.filter(content_type__in=limit_to_registered_models)
