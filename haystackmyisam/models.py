@@ -4,6 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 from django.utils import simplejson as json
+from django.core.serializers.json import DjangoJSONEncoder
 
 class SearchableObjectManager(models.Manager):
     def filter_by_model(self, model):
@@ -27,7 +28,8 @@ class SearchableObjectManager(models.Manager):
     def search(self, query):
         max_term_size = max([len(term) for term in query.split()])
         #mysql fulltext search does not support search terms of a size 3 or less
-        if settings.DATABASE_ENGINE == 'mysql' and max_term_size > 3:
+        #TODO handle routing
+        if 'mysql' in settings.DATABASES['default']['ENGINE'] and max_term_size > 3:
             return self.extra(
                 select={'relevance': 'MATCH(search_text) AGAINST (%s IN NATURAL LANGUAGE MODE)'},
                 select_params=[query],
@@ -47,12 +49,14 @@ class SearchableObject(models.Model):
     
     def get_document(self):
         if self._document:
+            #return DjangoJSONEncoder().decode(self._document)
             return json.loads(self._document)
         else:
             return {}
     
     def set_document(self, data):
-        self._document = json.dumps(data)
+        self._document = DjangoJSONEncoder().encode(data)
+        #self._document = json.dumps(data)
     
     document = property(get_document, set_document)
     

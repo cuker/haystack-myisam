@@ -4,6 +4,7 @@
 from django.utils.datastructures import MultiValueDict
 from django.db.models.query import QuerySet
 from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
 
 from haystack.backends import BaseSearchBackend, BaseSearchQuery, SearchNode, log_query
 from haystack.models import SearchResult
@@ -27,6 +28,23 @@ class SearchObjectQuerySet(QuerySet):
             yield result
 
 class SearchBackend(BaseSearchBackend):
+    MYSQL_SUBQUERY = '''
+                    (SELECT COUNT(*) FROM haystackmyisam_searchableindex AS searchindex 
+                     WHERE `searchindex`.`searchable_object_id`=`haystackmyisam_searchableobject`.`id` 
+                       AND `searchindex`.`key`=%s AND `searchindex`.`value`=%s) > 0
+                    '''
+    
+    POSTGRESQL_SUBQUERY = '''
+                    (SELECT COUNT(*) FROM haystackmyisam_searchableindex AS searchindex 
+                     WHERE searchindex.searchable_object_id=haystackmyisam_searchableobject.id 
+                       AND searchindex.key=%s AND searchindex.value=%s) > 0
+                    '''
+    
+    def get_subquery_sql(self):
+        if 'postgres' in settings.DATABASES['default']['ENGINE']:
+            return self.POSTGRESQL_SUBQUERY
+        return self.MYSQL_SUBQUERY
+    
     def update(self, index, iterable, commit=True):
         for obj in iterable:
             doc = index.full_prepare(obj)
@@ -61,6 +79,12 @@ class SearchBackend(BaseSearchBackend):
         hits = 0
         results = list()
         
+        if query_string in (None, ''):
+            return {
+                'results': results,
+                'hits': len(results),
+            }
+        
         #build search criteria
         qs = SearchableObject.objects.all()
         extras = MultiValueDict()
@@ -90,11 +114,7 @@ class SearchBackend(BaseSearchBackend):
                 qs &= SearchableObject.objects.search(search_params)
             else:
                 #TODO support multi value search
-                extras.appendlist('where','''
-                    (SELECT COUNT(*) FROM haystackmyisam_searchableindex AS searchindex 
-                     WHERE `searchindex`.`searchable_object_id`=`haystackmyisam_searchableobject`.`id` 
-                       AND `searchindex`.`key`=%s AND `searchindex`.`value`=%s) > 0
-                    ''')
+                extras.appendlist('where', self.get_subquery_sql())
                 extras.appendlist('params', key)
                 extras.appendlist('params', str(value_list[0]))
         
