@@ -18,6 +18,8 @@ class SearchObjectQuerySet(QuerySet):
     def iterator(self):
         for match in QuerySet.iterator(self):
             obj = match.content_object
+            if obj is None:
+                continue
             kwargs = dict()
             for key, value in match.document.iteritems():
                 kwargs[str(key)] = value
