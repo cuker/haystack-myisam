@@ -174,3 +174,12 @@ class SearchQuery(BaseSearchQuery):
         
         return terms
 
+try:
+    from haystack.backends import BaseEngine
+except ImportError:
+    pass
+else:
+    class SearchEngine(BaseEngine):
+        backend = SearchBackend
+        query = SearchQuery
+
